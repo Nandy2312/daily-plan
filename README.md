@@ -9,7 +9,8 @@ Everything is stored on the phone (localStorage) and works offline.
 ## Screens
 - **Today** — tick off the day's habits (by area), streaks, this week's goals.
 - **Week** — 7-day progress, weekly goals (dance video, swim, outing…), habit grid. Tap a day to fill in a missed one.
-- **Plan** — one-time decisions (cook akka, savings auto-transfer…), monthly savings vs target, new-house date / must-haves / places seen.
+- **Money** — add each spend in two taps; budget per category (rent, food, cook akka, dance…) shows what is left, what is over, and how much a day is safe for the rest of the month; income vs savings vs budgeted; monthly savings.
+- **Plan** — one-time decisions (cook akka, savings auto-transfer…), new-house date / must-haves / places seen.
 - **Setup** — edit habits and their days, weekly goals, add Calendar reminders (.ics), backup / restore.
 
 ## Run locally

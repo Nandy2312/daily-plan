@@ -564,3 +564,48 @@ button.box { padding: 0; background: none; }
 .toast { display: flex; align-items: center; gap: 14px; border-radius: 14px; }
 .toast.show { pointer-events: auto; }
 .toast button { border: 0; background: none; color: inherit; font-weight: 800; text-decoration: underline; padding: 4px 0; min-height: 32px; }
+
+/* ---------- money ---------- */
+.hero .hero-label { font-size: 14px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.hero .big-num { font-size: 40px; margin-top: 4px; }
+.hero.over .big-num, .hero.over .hero-label { color: #b33a3a; }
+.hero.over .meter > i { background: #b33a3a; }
+.hero-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 14px; color: var(--muted); }
+
+.amt { flex: none; text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
+.amt small { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+.amt.muted { color: var(--muted); font-weight: 600; font-size: 14px; }
+.amt.bad, .amt.bad small { color: #b33a3a; }
+.list-row.cat .label { display: flex; flex-direction: column; }
+.mini { display: block; height: 6px; margin-top: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.mini i { display: block; height: 100%; border-radius: inherit; background: var(--c, var(--ink)); }
+.mini i.bad { background: #b33a3a; }
+
+.day-head {
+  display: flex; justify-content: space-between;
+  padding: 10px 14px 6px;
+  border-top: 1px solid var(--line);
+  font-size: 13px; font-weight: 700; color: var(--muted);
+  background: color-mix(in srgb, var(--paper) 50%, transparent);
+}
+.card > .day-head:first-child { border-top: 0; }
+.list-row.exp { min-height: 52px; }
+
+.fab {
+  position: fixed;
+  right: max(18px, calc(50% - 262px));
+  bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 16px);
+  width: 60px; height: 60px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 32px; line-height: 1;
+  box-shadow: 0 10px 24px -8px rgba(35, 48, 111, 0.6);
+  z-index: 9;
+}
+
+.amount-box { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); padding: 0 12px; }
+.amount-box b { font-size: 26px; color: var(--muted); }
+.amount-box input { border: 0; background: none; font-size: 30px; font-weight: 800; min-height: 60px; padding: 0; outline: none; }
+.amount-box:focus-within { outline: 2px solid var(--ink-soft); outline-offset: 1px; }

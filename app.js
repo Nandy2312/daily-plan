@@ -54,6 +54,22 @@ function seed() {
     log: {},      // "YYYY-MM-DD" -> { habitId: true }
     weekLog: {},  // "YYYY-MM-DD" (Monday) -> { weeklyId: count }
     money: { target: 0, saved: {} }, // saved: "YYYY-MM" -> amount
+    budget: {
+      income: 0,
+      categories: [ // budget = planned spend per month
+        { id: uid(), name: "Rent", color: "home", budget: 0 },
+        { id: uid(), name: "Food & groceries", color: "food", budget: 0 },
+        { id: uid(), name: "Cook akka", color: "food", budget: 0 },
+        { id: uid(), name: "Transport", color: "outings", budget: 0 },
+        { id: uid(), name: "Bills & phone", color: "work", budget: 0 },
+        { id: uid(), name: "Dance", color: "dance", budget: 0 },
+        { id: uid(), name: "Outings", color: "outings", budget: 0 },
+        { id: uid(), name: "Shopping", color: "money", budget: 0 },
+        { id: uid(), name: "Health & gym", color: "workout", budget: 0 },
+        { id: uid(), name: "Other", color: "work", budget: 0 },
+      ],
+      expenses: [], // { id, date: "YYYY-MM-DD", amount, catId, note }
+    },
     house: {
       moveBy: "",
       budget: 0,
@@ -73,7 +89,7 @@ function seed() {
 /* ---------- storage ---------- */
 
 let state = load();
-let ui = { tab: "today", date: todayKey(), week: weekKey(new Date()) };
+let ui = { tab: "today", date: todayKey(), week: weekKey(new Date()), month: monthKey(new Date()) };
 
 function load() {
   try {
@@ -174,6 +190,22 @@ function goodDayStreak() {
 
 function weekCount(wk, id) { return (state.weekLog[wk] && state.weekLog[wk][id]) || 0; }
 
+/* ---------- money maths ---------- */
+
+function monthExpenses(mk) { return state.budget.expenses.filter((e) => e.date.startsWith(mk)); }
+function sum(arr, f) { return arr.reduce((a, x) => a + (Number(f(x)) || 0), 0); }
+function catOf(id) { return state.budget.categories.find((c) => c.id === id) || { name: "Uncategorised", color: "work", budget: 0 }; }
+function monthLabel(mk, opts = { month: "long" }) { return new Date(+mk.slice(0, 4), +mk.slice(5) - 1, 1).toLocaleDateString(undefined, opts); }
+function addMonths(mk, n) { const d = new Date(+mk.slice(0, 4), +mk.slice(5) - 1 + n, 1); return monthKey(d); }
+
+// what can be spent this month: the category budgets, or income minus savings if no budgets yet
+function spendable() {
+  const b = state.budget;
+  const budgeted = sum(b.categories, (c) => c.budget);
+  if (budgeted) return budgeted;
+  return b.income ? Math.max(0, b.income - (Number(state.money.target) || 0)) : 0;
+}
+
 /* ---------- small render helpers ---------- */
 
 function esc(s) {
@@ -268,6 +300,8 @@ function renderToday() {
 
     <h2>This week <small>${fmtShort(wk)} – ${fmtShort(addDays(wk, 6))}</small></h2>
     ${weeklyCard(wk)}
+
+    ${moneyGlance(key)}
     <p class="note center">Swipe left or right to change the day</p>
   `;
 }
@@ -348,24 +382,158 @@ function renderWeek() {
   `;
 }
 
-function renderPlan() {
-  const g = state.goals;
-  const open = g.filter((x) => !x.done).length;
-  const mk = monthKey(new Date());
-  const savedNow = Number(state.money.saved[mk] || 0);
+// small money card on Today
+function moneyGlance(dateKey) {
+  const mk = dateKey.slice(0, 7);
+  const exps = monthExpenses(mk);
+  const spentToday = sum(exps.filter((e) => e.date === dateKey), (e) => e.amount);
+  const left = spendable() - sum(exps, (e) => e.amount);
+  return `
+    <h2>Money <small>${monthLabel(mk)}</small></h2>
+    <div class="card">
+      <button class="list-row" data-act="go-money" ${col("money")}>
+        <span class="label">
+          <span class="title">${spendable() ? (left >= 0 ? `${money(left)} left this month` : `${money(-left)} over budget`) : `${money(sum(exps, (e) => e.amount))} spent this month`}</span>
+          <span class="sub">${money(spentToday)} spent ${dateKey === todayKey() ? "today" : "this day"}</span>
+        </span>${chev}
+      </button>
+      <button class="add-row" data-act="add-exp" data-date="${dateKey}">+ Add spending</button>
+    </div>`;
+}
+
+function renderMoney() {
+  const mk = ui.month;
+  const nowMk = monthKey(new Date());
+  const isThis = mk === nowMk;
+  const b = state.budget;
+  const exps = monthExpenses(mk).reverse().sort((a, z) => z.date.localeCompare(a.date)); // newest first
+  const spent = sum(exps, (e) => e.amount);
+  const plan = spendable();
+  const left = plan - spent;
+  const budgeted = sum(b.categories, (c) => c.budget);
   const target = Number(state.money.target || 0);
 
-  // last 6 months of savings
-  const months = [];
-  const d = new Date(); d.setDate(1);
-  for (let i = 5; i >= 0; i--) { const x = new Date(d); x.setMonth(d.getMonth() - i); months.push(monthKey(x)); }
+  // days left including today, for "per day"
+  const now = new Date();
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const daysLeft = lastDay - now.getDate() + 1;
+
+  const byCat = {};
+  for (const e of exps) byCat[e.catId] = (byCat[e.catId] || 0) + Number(e.amount);
+
+  const hero = plan ? `
+    <div class="card pad hero ${left < 0 ? "over" : ""}" ${col("money")}>
+      <div class="hero-label">${left >= 0 ? "Left to spend" : "Over budget by"}</div>
+      <div class="big-num">${money(Math.abs(left))}</div>
+      <div class="meter"><i style="width:${Math.min(100, (spent / plan) * 100)}%"></i></div>
+      <div class="hero-row"><span>Spent ${money(spent)}</span><span>Budget ${money(plan)}</span></div>
+      ${isThis && left > 0 ? `<p class="note">That's about <strong>${money(Math.floor(left / daysLeft))} a day</strong> for the next ${daysLeft} day${daysLeft > 1 ? "s" : ""}.</p>` : ""}
+    </div>` : `
+    <div class="card pad hero" ${col("money")}>
+      <div class="hero-label">Spent in ${monthLabel(mk)}</div>
+      <div class="big-num">${money(spent)}</div>
+      <p class="note">Add your income and a budget for each category below to see what's left.</p>
+      <div class="btn-row"><button class="btn small" data-act="edit-income">Set up my budget</button></div>
+    </div>`;
+
+  const cats = b.categories.map((c) => {
+    const s = byCat[c.id] || 0;
+    const l = c.budget - s;
+    const right = !c.budget ? `<span class="amt muted">${s ? money(s) : "Set budget"}</span>`
+      : l >= 0 ? `<span class="amt">${money(l)}<small>left</small></span>`
+      : `<span class="amt bad">${money(-l)}<small>over</small></span>`;
+    return `<button class="list-row cat" data-act="edit-cat" data-id="${c.id}" ${col(c.color)}>
+        <span class="dot"></span>
+        <span class="label">
+          <span class="title">${esc(c.name)}</span>
+          <span class="sub">${c.budget ? `${money(s)} of ${money(c.budget)}` : s ? "spent · no budget yet" : "no budget yet"}</span>
+          ${c.budget ? `<span class="mini"><i class="${l < 0 ? "bad" : ""}" style="width:${Math.min(100, (s / c.budget) * 100)}%"></i></span>` : ""}
+        </span>
+        ${right}
+      </button>`;
+  }).join("");
+  const orphan = Object.keys(byCat).filter((id) => !b.categories.some((c) => c.id === id));
+  const orphanRow = orphan.length ? `<div class="list-row"><span class="dot"></span><span class="label"><span class="title">Uncategorised</span></span><span class="amt muted">${money(sum(orphan, (id) => byCat[id]))}</span></div>` : "";
+
+  // group spending by day
+  const days = {};
+  for (const e of exps) (days[e.date] = days[e.date] || []).push(e);
+  const list = Object.entries(days).map(([d, es]) => `
+    <div class="day-head"><span>${d === todayKey() ? "Today" : fmtLong(d)}</span><span>${money(sum(es, (e) => e.amount))}</span></div>
+    ${es.map((e) => {
+      const c = catOf(e.catId);
+      return `<button class="list-row exp" data-act="edit-exp" data-id="${e.id}" ${col(c.color)}>
+        <span class="dot"></span>
+        <span class="label"><span class="title">${esc(e.note || c.name)}</span>${e.note ? `<span class="sub">${esc(c.name)}</span>` : ""}</span>
+        <span class="amt">${money(e.amount)}</span>
+      </button>`;
+    }).join("")}`).join("");
+
+  // savings: last 6 months
+  const savedNow = Number(state.money.saved[nowMk] || 0);
+  const months = Array.from({ length: 6 }, (_, i) => addMonths(nowMk, i - 5));
   const maxV = Math.max(target, ...months.map((m) => Number(state.money.saved[m] || 0)), 1);
   const bars = months.map((m) => {
     const v = Number(state.money.saved[m] || 0);
-    const label = new Date(+m.slice(0, 4), +m.slice(5) - 1, 1).toLocaleDateString(undefined, { month: "short" });
-    return `<div><i class="${target && v < target ? "miss" : ""}" style="height:${(v / maxV) * 70}px"></i>${label}</div>`;
+    return `<div><i class="${target && v < target ? "miss" : ""}" style="height:${(v / maxV) * 70}px"></i>${monthLabel(m, { month: "short" })}</div>`;
   }).join("");
 
+  return `
+    <div class="head-row">
+      <div>
+        <p class="eyebrow">${isThis ? "This month" : "Looking back"}</p>
+        <h1>${monthLabel(mk, { month: "long", year: "numeric" })}</h1>
+        ${isThis ? "" : `<button class="today-link" data-act="this-month">Back to this month</button>`}
+      </div>
+      <div class="date-nav">
+        <button class="icon-btn" data-act="month" data-n="-1" aria-label="Previous month">‹</button>
+        <button class="icon-btn" data-act="month" data-n="1" aria-label="Next month" ${isThis ? "disabled" : ""}>›</button>
+      </div>
+    </div>
+
+    <div style="margin-top:14px">${hero}</div>
+
+    <h2>Where it's going <small>tap to set a budget</small></h2>
+    <div class="card">
+      ${cats}${orphanRow}
+      <button class="add-row" data-act="add-cat">+ Add a category</button>
+    </div>
+
+    <h2>Income &amp; plan</h2>
+    <div class="card">
+      <button class="list-row" data-act="edit-income" ${col("money")}>
+        <span class="label">
+          <span class="title">${b.income ? `${money(b.income)} income a month` : "Add your monthly income"}</span>
+          <span class="sub">${b.income ? `Save ${money(target)} · budgeted ${money(budgeted)} · ${b.income - target - budgeted >= 0 ? `${money(b.income - target - budgeted)} not given a job yet` : `${money(budgeted + target - b.income)} more planned than you earn`}` : "So the app can tell you what's free to plan"}</span>
+        </span>${chev}
+      </button>
+    </div>
+
+    <h2>Spending <small>${exps.length} item${exps.length === 1 ? "" : "s"}</small></h2>
+    <div class="card">
+      ${list || `<div class="empty">Nothing added for ${monthLabel(mk)} yet. Tap <b>+</b> each time you spend.</div>`}
+    </div>
+
+    <h2>Savings <small>${monthLabel(nowMk)}</small></h2>
+    <div class="card pad" ${col("money")}>
+      <div class="big-num">${money(savedNow)}</div>
+      <div class="note" style="margin:4px 0 0">saved this month${target ? ` of ${money(target)} goal` : ""}</div>
+      ${target ? `<div class="meter"><i style="width:${Math.min(100, (savedNow / target) * 100)}%"></i></div>` : ""}
+      <div class="row">
+        <label class="field"><span>Saved this month</span><input type="number" inputmode="numeric" min="0" data-bind="saved" value="${savedNow || ""}" placeholder="₹0"></label>
+        <label class="field"><span>Monthly goal</span><input type="number" inputmode="numeric" min="0" data-bind="target" value="${target || ""}" placeholder="₹0"></label>
+      </div>
+      <div class="bars">${bars}</div>
+      <p class="note">Tip: set an auto-transfer for salary day, then just note the amount here.</p>
+    </div>
+
+    <button class="fab" data-act="add-exp" aria-label="Add spending">+</button>
+  `;
+}
+
+function renderPlan() {
+  const g = state.goals;
+  const open = g.filter((x) => !x.done).length;
   const h = state.house;
   const daysLeft = h.moveBy ? Math.round((parse(h.moveBy) - parse(todayKey())) / 86400000) : null;
   const places = [...h.places].sort((a, b) => (b.rating || 0) - (a.rating || 0));
@@ -386,19 +554,6 @@ function renderPlan() {
           </button>
         </div>`).join("") || `<div class="empty">Nothing yet.</div>`}
       <button class="add-row" data-act="add-goal">+ Add something to decide</button>
-    </div>
-
-    <h2>Money <small>${new Date().toLocaleDateString(undefined, { month: "long" })}</small></h2>
-    <div class="card pad" ${col("money")}>
-      <div class="big-num">${money(savedNow)}</div>
-      <div class="note" style="margin:4px 0 0">saved this month${target ? ` of ${money(target)} goal` : ""}</div>
-      ${target ? `<div class="meter"><i style="width:${Math.min(100, (savedNow / target) * 100)}%"></i></div>` : ""}
-      <div class="row">
-        <label class="field"><span>Saved this month</span><input type="number" inputmode="numeric" min="0" data-bind="saved" value="${savedNow || ""}" placeholder="₹0"></label>
-        <label class="field"><span>Monthly goal</span><input type="number" inputmode="numeric" min="0" data-bind="target" value="${target || ""}" placeholder="₹0"></label>
-      </div>
-      <div class="bars">${bars}</div>
-      <p class="note">Tip: set an auto-transfer for salary day, then just note the amount here.</p>
     </div>
 
     <h2>New house ${daysLeft !== null ? `<small>${daysLeft >= 0 ? `${daysLeft} days left` : `${-daysLeft} days past the date`}</small>` : ""}</h2>
@@ -665,6 +820,85 @@ function placeSheet(p) {
   });
 }
 
+function catChips(selectedId) {
+  return `<div class="chips" data-group="area">${state.budget.categories.map((c) =>
+    `<button type="button" class="chip${c.id === selectedId ? " on" : ""}" data-val="${c.id}" ${col(c.color)}>${esc(c.name)}</button>`).join("")}</div>`;
+}
+
+function expenseSheet(e, dateKey) {
+  const isNew = !e;
+  const last = state.budget.expenses[state.budget.expenses.length - 1];
+  e = e || { amount: "", catId: (last && last.catId) || (state.budget.categories[0] || {}).id, note: "", date: dateKey || todayKey() };
+  openSheet({
+    title: isNew ? "Add spending" : "Edit spending",
+    saveLabel: isNew ? "Add" : "Save",
+    body: `
+      <label class="field amount"><span>How much?</span>
+        <div class="amount-box"><b>₹</b><input type="number" id="f-amount" inputmode="decimal" min="0" step="any" value="${e.amount}" placeholder="0" autofocus></div>
+      </label>
+      <div class="field"><span>On what?</span>${catChips(e.catId)}</div>
+      <label class="field"><span>Note (optional)</span><input type="text" id="f-note" value="${esc(e.note)}" placeholder="e.g. Vegetables, auto to class"></label>
+      <label class="field"><span>Date</span><input type="date" id="f-date" value="${e.date}" max="${todayKey()}"></label>`,
+    onSave({ f, area }) {
+      const amount = Math.round(Number(f("#f-amount").value) * 100) / 100;
+      if (!(amount > 0)) { toast("Type the amount first"); return false; }
+      if (!area) { toast("Pick what it was for"); return false; }
+      const data = { amount, catId: area, note: f("#f-note").value.trim(), date: f("#f-date").value || todayKey() };
+      if (isNew) {
+        state.budget.expenses.push({ id: uid(), ...data });
+        const c = catOf(area);
+        const left = c.budget - sum(monthExpenses(data.date.slice(0, 7)).filter((x) => x.catId === area), (x) => x.amount);
+        toast(c.budget ? (left >= 0 ? `${money(left)} left for ${c.name}` : `${c.name} is ${money(-left)} over`) : "Added");
+      } else Object.assign(e, data);
+    },
+    onDelete: isNew ? null : () => removeWithUndo(state.budget.expenses, e, "Spending deleted"),
+  });
+}
+
+const CAT_COLORS = ["food", "workout", "work", "dance", "money", "outings", "home"];
+
+function categorySheet(c) {
+  const isNew = !c;
+  c = c || { name: "", budget: 0, color: CAT_COLORS[state.budget.categories.length % CAT_COLORS.length] };
+  const spentNow = isNew ? 0 : sum(monthExpenses(monthKey(new Date())).filter((x) => x.catId === c.id), (x) => x.amount);
+  openSheet({
+    title: isNew ? "New category" : c.name,
+    saveLabel: isNew ? "Add" : "Save",
+    body: `
+      <label class="field"><span>Name</span><input type="text" id="f-name" value="${esc(c.name)}" placeholder="e.g. Gifts" ${isNew ? "autofocus" : ""}></label>
+      <label class="field amount"><span>Budget for a month</span>
+        <div class="amount-box"><b>₹</b><input type="number" id="f-budget" inputmode="numeric" min="0" value="${c.budget || ""}" placeholder="0" ${isNew ? "" : "autofocus"}></div>
+      </label>
+      ${isNew ? "" : `<p class="note">Spent ${money(spentNow)} on this so far in ${monthLabel(monthKey(new Date()))}.</p>`}`,
+    onSave({ f }) {
+      const name = f("#f-name").value.trim();
+      if (!name) { toast("Give it a name first"); return false; }
+      const data = { name, budget: Math.max(0, Number(f("#f-budget").value) || 0) };
+      if (isNew) state.budget.categories.push({ id: uid(), color: c.color, ...data });
+      else Object.assign(c, data);
+    },
+    onDelete: isNew ? null : () => removeWithUndo(state.budget.categories, c, "Category deleted"),
+  });
+}
+
+function incomeSheet() {
+  openSheet({
+    title: "Monthly plan",
+    body: `
+      <label class="field amount"><span>Money coming in each month</span>
+        <div class="amount-box"><b>₹</b><input type="number" id="f-income" inputmode="numeric" min="0" value="${state.budget.income || ""}" placeholder="0" autofocus></div>
+      </label>
+      <label class="field amount"><span>Put aside for savings first</span>
+        <div class="amount-box"><b>₹</b><input type="number" id="f-save" inputmode="numeric" min="0" value="${state.money.target || ""}" placeholder="0"></div>
+      </label>
+      <p class="note">Then give each category a budget on the Money screen. Whatever isn't given a job shows up so you can decide where it goes.</p>`,
+    onSave({ f }) {
+      state.budget.income = Math.max(0, Number(f("#f-income").value) || 0);
+      state.money.target = Math.max(0, Number(f("#f-save").value) || 0);
+    },
+  });
+}
+
 function nameSheet() {
   openSheet({
     title: "Your name",
@@ -691,7 +925,8 @@ function showWelcome() {
       <ol class="how">
         <li><b>Today</b><span>Tick small things off as you do them. Miss one? Swipe back and fill it in.</span></li>
         <li><b>Week</b><span>Dance video, swim, an outing — tap + when it happens.</span></li>
-        <li><b>Plan</b><span>The one-time decisions, your savings and the new house.</span></li>
+        <li><b>Money</b><span>Add what you spend. See what's left for rent, food, dance and the rest.</span></li>
+        <li><b>Plan</b><span>The one-time decisions and the new house.</span></li>
         <li><b>Setup</b><span>Change anything. It's your plan.</span></li>
       </ol>
       <label class="field"><span>What should I call you?</span><input type="text" id="welcome-name" value="${esc(state.name)}" placeholder="Your name (optional)" autocomplete="given-name"></label>
@@ -710,7 +945,7 @@ function showWelcome() {
 
 /* ---------- render + routing ---------- */
 
-const screens = { today: renderToday, week: renderWeek, plan: renderPlan, settings: renderSettings };
+const screens = { today: renderToday, week: renderWeek, money: renderMoney, plan: renderPlan, settings: renderSettings };
 const screenEl = document.getElementById("screen");
 
 function render(keepScroll) {
@@ -729,6 +964,7 @@ function go(tab) {
   ui.tab = tab;
   if (tab === "today") ui.date = todayKey();
   if (tab === "week") ui.week = weekKey(new Date());
+  if (tab === "money") ui.month = monthKey(new Date());
   try { localStorage.setItem("dailyplan.tab", tab); } catch (e) {}
   render(false);
 }
@@ -777,6 +1013,14 @@ const actions = {
   "edit-weekly"(b) { weeklySheet(find(state.weekly, b.dataset.id)); return "noop"; },
   "add-weekly"() { weeklySheet(); return "noop"; },
   "edit-name"() { nameSheet(); return "noop"; },
+  "add-exp"(b) { expenseSheet(null, b.dataset.date); return "noop"; },
+  "edit-exp"(b) { expenseSheet(find(state.budget.expenses, b.dataset.id)); return "noop"; },
+  "edit-cat"(b) { categorySheet(find(state.budget.categories, b.dataset.id)); return "noop"; },
+  "add-cat"() { categorySheet(); return "noop"; },
+  "edit-income"() { incomeSheet(); return "noop"; },
+  "go-money"() { ui.tab = "money"; ui.month = monthKey(new Date()); return "top"; },
+  month(b) { ui.month = addMonths(ui.month, +b.dataset.n); return "top"; },
+  "this-month"() { ui.month = monthKey(new Date()); return "top"; },
   "hide-hint"() { state.installHintHidden = true; },
   "show-welcome"() { showWelcome(); return "noop"; },
   ics() { downloadIcs(); return "noop"; },
