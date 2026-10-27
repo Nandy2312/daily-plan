@@ -1,5 +1,5 @@
 /* Offline support: serve the app from cache, refresh it in the background. Bump VERSION on each release. */
-const VERSION = "dailyplan-v1";
+const VERSION = "dailyplan-v2";
 const SHELL = ["./", "index.html", "app.css", "app.js", "manifest.webmanifest", "icons/icon-180.png", "icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {

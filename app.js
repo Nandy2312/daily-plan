@@ -23,6 +23,9 @@ const AREAS = {
 function seed() {
   return {
     version: 1,
+    name: "",
+    welcomed: false,
+    installHintHidden: false,
     startedOn: todayKey(), // days before this don't count against you
     habits: [
       { id: uid(), area: "food", title: "Healthy food today", note: "Cook akka on weekdays, batch-cook Sunday", days: ALL_DAYS },
@@ -87,6 +90,9 @@ function save() {
 
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
+const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
 /* ---------- dates ---------- */
 
 function uid() { return Math.random().toString(36).slice(2, 10); }
@@ -104,6 +110,21 @@ function fmtLong(key) {
 }
 function fmtShort(key) {
   return parse(key).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  const part = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  return state.name ? `${part}, ${state.name}` : part;
+}
+
+function daysLabel(days) {
+  const s = [...days].sort().join();
+  if (s === ALL_DAYS.join()) return "Every day";
+  if (s === WEEKDAYS.join()) return "Weekdays";
+  if (s === "0,6") return "Weekends";
+  if (!days.length) return "Paused — no days picked";
+  return WEEK_ORDER.filter((d) => days.includes(d)).map((d) => DAY_NAMES[d]).join(", ");
 }
 
 /* ---------- habit maths ---------- */
@@ -160,6 +181,7 @@ function esc(s) {
 }
 const col = (area) => `style="--c: var(--${AREAS[area] ? area : "work"})"`;
 const tick = `<svg viewBox="0 0 36 36" aria-hidden="true"><path d="M7 19l7 7L31 7"/></svg>`;
+const chev = `<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>`;
 
 function ring(p) {
   const r = 27, c = 2 * Math.PI * r, pct = Math.round((p || 0) * 100);
@@ -167,10 +189,6 @@ function ring(p) {
     <circle class="track" cx="32" cy="32" r="${r}"/>
     <circle class="fill" cx="32" cy="32" r="${r}" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - (p || 0))}"/>
     <text x="32" y="38" text-anchor="middle">${pct}%</text></svg>`;
-}
-
-function areaOptions(selected) {
-  return Object.entries(AREAS).map(([k, v]) => `<option value="${k}"${k === selected ? " selected" : ""}>${v}</option>`).join("");
 }
 
 function groupByArea(items) {
@@ -183,6 +201,14 @@ function money(n) {
   return Number(n || 0).toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 }
 
+function progressLine(done, total) {
+  if (!total) return "Rest day";
+  if (done === total) return "All done — enjoy the rest of the day";
+  const left = total - done;
+  if (done === 0) return `${total} small things today`;
+  return `${left} more to go`;
+}
+
 /* ---------- screens ---------- */
 
 function renderToday() {
@@ -192,24 +218,35 @@ function renderToday() {
   const done = list.filter((h) => isDone(key, h.id)).length;
   const streak = goodDayStreak();
   const wk = weekKey(parse(key));
+  const nextId = isToday ? (groupByArea(list).flatMap(([, hs]) => hs).find((h) => !isDone(key, h.id)) || {}).id : null;
 
   const groups = groupByArea(list).map(([area, habits]) => `
     <div class="area-tag" ${col(area)}>${AREAS[area]}</div>
     <div class="card">
       ${habits.map((h) => {
         const s = habitStreak(h, key);
-        return `<button class="check${isDone(key, h.id) ? " done" : ""}" data-act="toggle" data-id="${h.id}" ${col(h.area)}>
+        return `<button class="check${isDone(key, h.id) ? " done" : ""}${h.id === nextId ? " next" : ""}" data-act="toggle" data-id="${h.id}" ${col(h.area)}>
           <span class="box">${tick}</span>
           <span class="label"><span class="title">${esc(h.title)}</span>${h.note ? `<span class="sub">${esc(h.note)}</span>` : ""}</span>
-          ${s > 1 ? `<span class="streak">${s} in a row</span>` : ""}
+          ${h.id === nextId ? `<span class="pill">Next</span>` : s > 1 ? `<span class="streak">${s} in a row</span>` : ""}
         </button>`;
       }).join("")}
     </div>`).join("");
 
+  const installHint = isIOS && !standalone && !state.installHintHidden ? `
+    <div class="hint card">
+      <div>
+        <strong>Put Daily Plan on your home screen</strong>
+        <span>Tap <svg class="share" viewBox="0 0 24 24" aria-label="Share"><path d="M12 15V3M8 7l4-4 4 4M6 11H5v10h14V11h-1"/></svg> below, then <b>Add to Home Screen</b>.</span>
+      </div>
+      <button class="x" data-act="hide-hint" aria-label="Hide">×</button>
+    </div>` : "";
+
   return `
+    ${installHint}
     <div class="head-row">
       <div>
-        <p class="eyebrow">${isToday ? "Today" : "Looking back"}</p>
+        <p class="eyebrow">${isToday ? esc(greeting()) : "Looking back"}</p>
         <h1>${esc(fmtLong(key))}</h1>
         ${isToday ? "" : `<button class="today-link" data-act="goto-today">Back to today</button>`}
       </div>
@@ -219,11 +256,11 @@ function renderToday() {
       </div>
     </div>
 
-    <div class="progress">
+    <div class="progress${list.length && done === list.length ? " all-done" : ""}">
       ${ring(list.length ? done / list.length : 0)}
       <div class="progress-text">
-        <strong>${done} of ${list.length} done</strong>
-        <span>${streak ? `${streak} good day${streak > 1 ? "s" : ""} in a row` : "A good day = 80% of the plan"}</span>
+        <strong>${progressLine(done, list.length)}</strong>
+        <span>${streak ? `${streak} good day${streak > 1 ? "s" : ""} in a row` : "Tick each one as you finish it"}</span>
       </div>
     </div>
 
@@ -231,20 +268,21 @@ function renderToday() {
 
     <h2>This week <small>${fmtShort(wk)} – ${fmtShort(addDays(wk, 6))}</small></h2>
     ${weeklyCard(wk)}
+    <p class="note center">Swipe left or right to change the day</p>
   `;
 }
 
 function weeklyCard(wk) {
-  if (!state.weekly.length) return `<div class="card empty">No weekly goals yet — add them in Setup.</div>`;
+  if (!state.weekly.length) return `<div class="card empty">No weekly goals yet. <button class="today-link" data-act="add-weekly">Add one</button></div>`;
   return `<div class="card">${state.weekly.map((w) => {
     const n = weekCount(wk, w.id);
     const dots = Array.from({ length: Math.max(w.target, n) }, (_, i) => `<i class="${i < n ? "on" : ""}"></i>`).join("");
-    return `<div class="counter" ${col(w.area)}>
+    return `<div class="counter${n >= w.target ? " met" : ""}" ${col(w.area)}>
       <div class="label"><div>${esc(w.title)}</div><div class="dots">${dots}</div></div>
       <div class="step">
-        <button data-act="wk" data-wk="${wk}" data-id="${w.id}" data-n="-1" aria-label="Less">−</button>
-        <b>${n}/${w.target}</b>
-        <button data-act="wk" data-wk="${wk}" data-id="${w.id}" data-n="1" aria-label="More">+</button>
+        <button data-act="wk" data-wk="${wk}" data-id="${w.id}" data-n="-1" aria-label="One less" ${n ? "" : "disabled"}>−</button>
+        <b>${n} of ${w.target}</b>
+        <button data-act="wk" data-wk="${wk}" data-id="${w.id}" data-n="1" aria-label="One more">+</button>
       </div>
     </div>`;
   }).join("")}</div>`;
@@ -259,7 +297,7 @@ function renderWeek() {
   const strip = dates.map((k) => {
     const p = dayPct(k);
     const future = k > today;
-    return `<button class="day${k === today ? " is-today" : ""}" data-act="open-day" data-date="${k}" ${future ? "disabled" : ""} style="border-style:solid">
+    return `<button class="day${k === today ? " is-today" : ""}" data-act="open-day" data-date="${k}" ${future ? "disabled" : ""}>
       ${DAY_NAMES[parse(k).getDay()]}<b>${parse(k).getDate()}</b>
       <div class="pct" style="--p:${future || p === null ? 0 : Math.round(p * 100)}"></div>
     </button>`;
@@ -291,7 +329,7 @@ function renderWeek() {
 
     <div class="progress">
       ${ring(avg)}
-      <div class="progress-text"><strong>Average day: ${Math.round(avg * 100)}%</strong><span>Tap a day to fill in what you missed</span></div>
+      <div class="progress-text"><strong>Your average day: ${Math.round(avg * 100)}%</strong><span>Tap a day to fill in anything you missed</span></div>
     </div>
 
     <div class="strip">${strip}</div>
@@ -306,6 +344,7 @@ function renderWeek() {
         <tbody>${rows || `<tr><td colspan="8" class="empty">No habits yet</td></tr>`}</tbody>
       </table>
     </div>
+    <p class="note center"><span class="cell on" style="--c:var(--ink)"></span> done &nbsp; <span class="cell" style="--c:var(--ink)"></span> missed &nbsp; <span class="cell off" style="--c:var(--ink)"></span> not planned</p>
   `;
 }
 
@@ -330,47 +369,43 @@ function renderPlan() {
   const h = state.house;
   const daysLeft = h.moveBy ? Math.round((parse(h.moveBy) - parse(todayKey())) / 86400000) : null;
   const places = [...h.places].sort((a, b) => (b.rating || 0) - (a.rating || 0));
+  const sortedGoals = [...g].sort((a, b) => a.done - b.done);
 
   return `
     <p class="eyebrow">One-time things</p>
-    <h1>The plan</h1>
-    <p class="note">${open ? `<strong>${open}</strong> still open. Do the decisions first — they make every day easier.` : "Everything here is done. Add the next one."}</p>
+    <h1>The bigger plan</h1>
+    <p class="note">${open ? `<strong>${open} still open.</strong> Do these first — each one makes every day easier.` : "Everything here is done. Add the next one."}</p>
 
     <h2>To decide &amp; set up</h2>
     <div class="card">
-      ${g.map((x) => `<div class="check${x.done ? " done" : ""}" ${col(x.area)} style="cursor:default">
-          <button class="box" data-act="goal" data-id="${x.id}" aria-label="Mark done" style="background:none;padding:0">${tick}</button>
-          <span class="label"><span class="title">${esc(x.title)}</span><span class="sub">${AREAS[x.area]}${x.doneAt ? ` · done ${fmtShort(x.doneAt)}` : ""}</span></span>
-          <button class="x" data-act="del-goal" data-id="${x.id}" aria-label="Delete">×</button>
+      ${sortedGoals.map((x) => `<div class="check${x.done ? " done" : ""}" ${col(x.area)}>
+          <button class="box" data-act="goal" data-id="${x.id}" aria-label="${x.done ? "Mark not done" : "Mark done"}">${tick}</button>
+          <button class="label link" data-act="edit-goal" data-id="${x.id}">
+            <span class="title">${esc(x.title)}</span>
+            <span class="sub">${AREAS[x.area]}${x.doneAt ? ` · done ${fmtShort(x.doneAt)}` : ""}</span>
+          </button>
         </div>`).join("") || `<div class="empty">Nothing yet.</div>`}
-      <div class="edit-item">
-        <div class="row">
-          <input type="text" id="new-goal" placeholder="Add something to decide…" enterkeyhint="done">
-          <select id="new-goal-area">${areaOptions("home")}</select>
-        </div>
-        <div class="btn-row"><button class="btn small" data-act="add-goal">Add</button></div>
-      </div>
+      <button class="add-row" data-act="add-goal">+ Add something to decide</button>
     </div>
 
     <h2>Money <small>${new Date().toLocaleDateString(undefined, { month: "long" })}</small></h2>
     <div class="card pad" ${col("money")}>
-      <div class="head-row">
-        <div><div class="big-num">${money(savedNow)}</div><div class="note" style="margin:4px 0 0">saved this month${target ? ` of ${money(target)}` : ""}</div></div>
-      </div>
+      <div class="big-num">${money(savedNow)}</div>
+      <div class="note" style="margin:4px 0 0">saved this month${target ? ` of ${money(target)} goal` : ""}</div>
       ${target ? `<div class="meter"><i style="width:${Math.min(100, (savedNow / target) * 100)}%"></i></div>` : ""}
       <div class="row">
-        <label class="field"><span>Saved this month</span><input type="number" inputmode="numeric" min="0" data-bind="saved" value="${savedNow || ""}" placeholder="0"></label>
-        <label class="field"><span>Monthly target</span><input type="number" inputmode="numeric" min="0" data-bind="target" value="${target || ""}" placeholder="0"></label>
+        <label class="field"><span>Saved this month</span><input type="number" inputmode="numeric" min="0" data-bind="saved" value="${savedNow || ""}" placeholder="₹0"></label>
+        <label class="field"><span>Monthly goal</span><input type="number" inputmode="numeric" min="0" data-bind="target" value="${target || ""}" placeholder="₹0"></label>
       </div>
       <div class="bars">${bars}</div>
-      <p class="note">Set the transfer to happen on salary day, then just note the amount here.</p>
+      <p class="note">Tip: set an auto-transfer for salary day, then just note the amount here.</p>
     </div>
 
     <h2>New house ${daysLeft !== null ? `<small>${daysLeft >= 0 ? `${daysLeft} days left` : `${-daysLeft} days past the date`}</small>` : ""}</h2>
     <div class="card pad" ${col("home")}>
       <div class="row">
         <label class="field"><span>Move by</span><input type="date" data-bind="moveBy" value="${esc(h.moveBy)}"></label>
-        <label class="field"><span>Rent budget / month</span><input type="number" inputmode="numeric" min="0" data-bind="budget" value="${h.budget || ""}" placeholder="0"></label>
+        <label class="field"><span>Rent budget / month</span><input type="number" inputmode="numeric" min="0" data-bind="budget" value="${h.budget || ""}" placeholder="₹0"></label>
       </div>
     </div>
 
@@ -384,21 +419,13 @@ function renderPlan() {
     <div class="area-tag" ${col("home")}>Places seen</div>
     <div class="card">
       ${places.map((p) => `<div class="place">
-          <div class="place-head"><b>${esc(p.name)}</b><span>${p.rent ? money(p.rent) : ""}${h.budget && p.rent > h.budget ? " · over" : ""}</span></div>
+          <button class="place-head link" data-act="edit-place" data-id="${p.id}">
+            <b>${esc(p.name)}</b><span>${p.rent ? money(p.rent) : ""}${h.budget && p.rent > h.budget ? " · over budget" : ""}</span>
+          </button>
           ${p.notes ? `<p>${esc(p.notes)}</p>` : ""}
-          <div class="row" style="align-items:center">
-            <div class="stars">${[1, 2, 3, 4, 5].map((n) => `<button class="${n <= (p.rating || 0) ? "on" : ""}" data-act="rate" data-id="${p.id}" data-n="${n}" aria-label="${n} stars">★</button>`).join("")}</div>
-            <button class="x" data-act="del-place" data-id="${p.id}" aria-label="Delete place">×</button>
-          </div>
-        </div>`).join("") || `<div class="empty">No places yet.</div>`}
-      <div class="edit-item">
-        <div class="row">
-          <input type="text" id="place-name" placeholder="Area / building">
-          <input type="number" id="place-rent" inputmode="numeric" placeholder="Rent" style="flex:0 0 110px">
-        </div>
-        <textarea id="place-notes" rows="2" placeholder="Notes — commute, kitchen, light…" style="margin-top:8px"></textarea>
-        <div class="btn-row"><button class="btn small" data-act="add-place">Add place</button></div>
-      </div>
+          <div class="stars">${[1, 2, 3, 4, 5].map((n) => `<button class="${n <= (p.rating || 0) ? "on" : ""}" data-act="rate" data-id="${p.id}" data-n="${n}" aria-label="${n} stars">★</button>`).join("")}</div>
+        </div>`).join("") || `<div class="empty">No places yet. Add each one you visit and give it stars.</div>`}
+      <button class="add-row" data-act="add-place">+ Add a place</button>
     </div>
   `;
 }
@@ -407,43 +434,37 @@ function renderSettings() {
   const r = state.reminders;
   return `
     <p class="eyebrow">Setup</p>
-    <h1>Shape the plan</h1>
+    <h1>Shape your plan</h1>
+    <p class="note">Tap anything to change it.</p>
+
+    <h2>About you</h2>
+    <div class="card">
+      <button class="list-row" data-act="edit-name">
+        <span class="label"><span class="title">${state.name ? esc(state.name) : "Add your name"}</span><span class="sub">Used for the greeting</span></span>${chev}
+      </button>
+    </div>
 
     <h2>Daily habits</h2>
     <div class="card">
-      ${state.habits.map((h) => `<div class="edit-item" ${col(h.area)}>
-          <div class="row">
-            <input type="text" value="${esc(h.title)}" data-edit="habit" data-id="${h.id}" data-key="title" aria-label="Habit">
-            <button class="x" data-act="del-habit" data-id="${h.id}" aria-label="Delete habit">×</button>
-          </div>
-          <div class="row" style="margin-top:8px">
-            <input type="text" value="${esc(h.note)}" data-edit="habit" data-id="${h.id}" data-key="note" placeholder="Note (optional)" aria-label="Note">
-            <select data-edit="habit" data-id="${h.id}" data-key="area" aria-label="Area">${areaOptions(h.area)}</select>
-          </div>
-          <div class="daypick">${WEEK_ORDER.map((d) => `<button class="${h.days.includes(d) ? "on" : ""}" data-act="habit-day" data-id="${h.id}" data-d="${d}">${DAY_NAMES[d]}</button>`).join("")}</div>
-        </div>`).join("")}
-      <div class="edit-item"><button class="btn small ghost" data-act="add-habit">+ Add habit</button></div>
+      ${state.habits.map((h) => `<button class="list-row" data-act="edit-habit" data-id="${h.id}" ${col(h.area)}>
+          <span class="dot"></span>
+          <span class="label"><span class="title">${esc(h.title)}</span><span class="sub">${AREAS[h.area]} · ${daysLabel(h.days)}</span></span>${chev}
+        </button>`).join("")}
+      <button class="add-row" data-act="add-habit">+ Add a habit</button>
     </div>
 
     <h2>Weekly goals</h2>
     <div class="card">
-      ${state.weekly.map((w) => `<div class="edit-item">
-          <div class="row">
-            <input type="text" value="${esc(w.title)}" data-edit="weekly" data-id="${w.id}" data-key="title" aria-label="Weekly goal">
-            <button class="x" data-act="del-weekly" data-id="${w.id}" aria-label="Delete goal">×</button>
-          </div>
-          <div class="row" style="margin-top:8px">
-            <select data-edit="weekly" data-id="${w.id}" data-key="area" aria-label="Area">${areaOptions(w.area)}</select>
-            <label class="row" style="align-items:center;gap:6px"><span class="note" style="margin:0;flex:none">Times / week</span>
-              <input type="number" min="1" max="14" inputmode="numeric" value="${w.target}" data-edit="weekly" data-id="${w.id}" data-key="target"></label>
-          </div>
-        </div>`).join("")}
-      <div class="edit-item"><button class="btn small ghost" data-act="add-weekly">+ Add weekly goal</button></div>
+      ${state.weekly.map((w) => `<button class="list-row" data-act="edit-weekly" data-id="${w.id}" ${col(w.area)}>
+          <span class="dot"></span>
+          <span class="label"><span class="title">${esc(w.title)}</span><span class="sub">${AREAS[w.area]} · ${w.target} time${w.target > 1 ? "s" : ""} a week</span></span>${chev}
+        </button>`).join("")}
+      <button class="add-row" data-act="add-weekly">+ Add a weekly goal</button>
     </div>
 
     <h2>Reminders</h2>
     <div class="card pad">
-      <p class="note" style="margin-top:0">Home-screen web apps can't ring on their own, so this adds repeating events with alerts to your iPhone Calendar.</p>
+      <p class="note" style="margin-top:0">Adds repeating events with alerts to your iPhone Calendar, so your phone reminds you even when the app is closed.</p>
       <div class="row">
         <label class="field"><span>Workout</span><input type="time" data-bind="rem-workout" value="${r.workout}"></label>
         <label class="field"><span>Deep work</span><input type="time" data-bind="rem-deepwork" value="${r.deepwork}"></label>
@@ -454,7 +475,7 @@ function renderSettings() {
 
     <h2>Backup</h2>
     <div class="card pad">
-      <p class="note" style="margin-top:0">Your plan is stored only on this phone. Save a backup now and then.</p>
+      <p class="note" style="margin-top:0">Your plan is saved only on this phone. Save a backup to Files once in a while.</p>
       <div class="btn-row">
         <button class="btn ghost" data-act="export">Save backup</button>
         <button class="btn ghost" data-act="import">Restore backup</button>
@@ -462,21 +483,229 @@ function renderSettings() {
       </div>
     </div>
 
-    <h2>Put it on your home screen</h2>
-    <details class="card">
-      <summary>How to install on iPhone</summary>
-      <div class="pad">
-        <ol class="steps">
-          <li>Open this page in <strong>Safari</strong>.</li>
-          <li>Tap the <strong>Share</strong> button.</li>
-          <li>Choose <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li>
-          <li>Open it from the icon — it runs full-screen and works offline.</li>
-        </ol>
-      </div>
-    </details>
-
-    <div class="btn-row" style="margin-top:28px"><button class="btn danger small" data-act="reset">Start over with the original plan</button></div>
+    <h2>Help</h2>
+    <div class="card">
+      <button class="list-row" data-act="show-welcome"><span class="label"><span class="title">How Daily Plan works</span></span>${chev}</button>
+      <button class="list-row" data-act="reset"><span class="label"><span class="title danger-text">Start over with the original plan</span></span></button>
+    </div>
   `;
+}
+
+/* ---------- bottom sheet (all editing happens here) ---------- */
+
+const sheetEl = document.getElementById("sheet");
+let sheetSave = null;
+
+function areaChips(selected) {
+  return `<div class="chips" data-group="area">${Object.entries(AREAS).map(([k, v]) =>
+    `<button type="button" class="chip${k === selected ? " on" : ""}" data-val="${k}" ${col(k)}>${v}</button>`).join("")}</div>`;
+}
+
+function openSheet({ title, body, saveLabel = "Save", onSave, onDelete }) {
+  sheetEl.innerHTML = `
+    <div class="sheet-backdrop" data-sheet="close"></div>
+    <form class="sheet-panel" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+      <div class="grab"></div>
+      <div class="sheet-head">
+        <button type="button" class="today-link" data-sheet="close">Cancel</button>
+        <strong>${esc(title)}</strong>
+        <button type="submit" class="save-link">${esc(saveLabel)}</button>
+      </div>
+      <div class="sheet-body">${body}
+        ${onDelete ? `<button type="button" class="btn danger wide" data-sheet="delete">Delete</button>` : ""}
+      </div>
+    </form>`;
+  sheetSave = onSave;
+  sheetEl._onDelete = onDelete;
+  sheetEl.classList.add("open");
+  document.body.classList.add("locked");
+  const first = sheetEl.querySelector("input[autofocus]");
+  if (first && !isIOS) setTimeout(() => first.focus(), 250);
+}
+
+function closeSheet() {
+  sheetEl.classList.remove("open");
+  document.body.classList.remove("locked");
+  sheetSave = null;
+  setTimeout(() => { if (!sheetEl.classList.contains("open")) sheetEl.innerHTML = ""; }, 260);
+}
+
+sheetEl.addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip) {
+    chip.parentElement.querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c === chip));
+    return;
+  }
+  const day = e.target.closest("[data-day]");
+  if (day) { day.classList.toggle("on"); return; }
+  const preset = e.target.closest("[data-preset]");
+  if (preset) {
+    const set = preset.dataset.preset.split(",").map(Number);
+    sheetEl.querySelectorAll("[data-day]").forEach((b) => b.classList.toggle("on", set.includes(+b.dataset.day)));
+    return;
+  }
+  const stepBtn = e.target.closest("[data-step]");
+  if (stepBtn) {
+    const input = sheetEl.querySelector("#f-target");
+    input.value = Math.max(1, Math.min(14, (+input.value || 1) + +stepBtn.dataset.step));
+    return;
+  }
+  const act = e.target.closest("[data-sheet]");
+  if (!act) return;
+  if (act.dataset.sheet === "close") closeSheet();
+  if (act.dataset.sheet === "delete") { const del = sheetEl._onDelete; closeSheet(); del(); save(); render(true); }
+});
+
+sheetEl.addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!sheetSave) return;
+  const f = (id) => sheetEl.querySelector(id);
+  const area = (sheetEl.querySelector('[data-group="area"] .chip.on') || {}).dataset?.val;
+  const days = [...sheetEl.querySelectorAll("[data-day].on")].map((b) => +b.dataset.day);
+  if (sheetSave({ f, area, days }) === false) return;
+  closeSheet();
+  save();
+  render(true);
+});
+
+function habitSheet(h) {
+  const isNew = !h;
+  h = h || { area: "work", title: "", note: "", days: ALL_DAYS.slice() };
+  openSheet({
+    title: isNew ? "New habit" : "Edit habit",
+    saveLabel: isNew ? "Add" : "Save",
+    body: `
+      <label class="field"><span>What do you want to do?</span><input type="text" id="f-title" value="${esc(h.title)}" placeholder="e.g. Stretch for 10 min" autofocus></label>
+      <label class="field"><span>Small note (optional)</span><input type="text" id="f-note" value="${esc(h.note)}" placeholder="e.g. After brushing teeth"></label>
+      <div class="field"><span>Area</span>${areaChips(h.area)}</div>
+      <div class="field"><span>Which days?</span>
+        <div class="presets">
+          <button type="button" data-preset="${ALL_DAYS}">Every day</button>
+          <button type="button" data-preset="${WEEKDAYS}">Weekdays</button>
+          <button type="button" data-preset="0,6">Weekends</button>
+        </div>
+        <div class="daypick">${WEEK_ORDER.map((d) => `<button type="button" class="${h.days.includes(d) ? "on" : ""}" data-day="${d}">${DAY_NAMES[d]}</button>`).join("")}</div>
+      </div>`,
+    onSave({ f, area, days }) {
+      const title = f("#f-title").value.trim();
+      if (!title) { toast("Give it a name first"); return false; }
+      if (!days.length) { toast("Pick at least one day"); return false; }
+      const data = { title, note: f("#f-note").value.trim(), area: area || "work", days: days.sort() };
+      if (isNew) { state.habits.push({ id: uid(), ...data }); toast("Habit added"); }
+      else Object.assign(h, data);
+    },
+    onDelete: isNew ? null : () => removeWithUndo(state.habits, h, "Habit deleted"),
+  });
+}
+
+function weeklySheet(w) {
+  const isNew = !w;
+  w = w || { area: "dance", title: "", target: 1 };
+  openSheet({
+    title: isNew ? "New weekly goal" : "Edit weekly goal",
+    saveLabel: isNew ? "Add" : "Save",
+    body: `
+      <label class="field"><span>Goal</span><input type="text" id="f-title" value="${esc(w.title)}" placeholder="e.g. Call home" autofocus></label>
+      <div class="field"><span>Area</span>${areaChips(w.area)}</div>
+      <div class="field"><span>How many times a week?</span>
+        <div class="step big">
+          <button type="button" data-step="-1" aria-label="Fewer">−</button>
+          <input type="number" id="f-target" min="1" max="14" inputmode="numeric" value="${w.target}">
+          <button type="button" data-step="1" aria-label="More">+</button>
+        </div>
+      </div>`,
+    onSave({ f, area }) {
+      const title = f("#f-title").value.trim();
+      if (!title) { toast("Give it a name first"); return false; }
+      const data = { title, area: area || "dance", target: Math.max(1, Math.min(14, +f("#f-target").value || 1)) };
+      if (isNew) { state.weekly.push({ id: uid(), ...data }); toast("Weekly goal added"); }
+      else Object.assign(w, data);
+    },
+    onDelete: isNew ? null : () => removeWithUndo(state.weekly, w, "Weekly goal deleted"),
+  });
+}
+
+function goalSheet(g) {
+  const isNew = !g;
+  g = g || { area: "home", title: "" };
+  openSheet({
+    title: isNew ? "Something to decide" : "Edit",
+    saveLabel: isNew ? "Add" : "Save",
+    body: `
+      <label class="field"><span>What needs deciding or setting up?</span><input type="text" id="f-title" value="${esc(g.title)}" placeholder="e.g. Book a swimming pool membership" autofocus></label>
+      <div class="field"><span>Area</span>${areaChips(g.area)}</div>`,
+    onSave({ f, area }) {
+      const title = f("#f-title").value.trim();
+      if (!title) { toast("Write what it is first"); return false; }
+      if (isNew) state.goals.push({ id: uid(), area: area || "home", title, done: false });
+      else Object.assign(g, { title, area: area || g.area });
+    },
+    onDelete: isNew ? null : () => removeWithUndo(state.goals, g, "Deleted"),
+  });
+}
+
+function placeSheet(p) {
+  const isNew = !p;
+  p = p || { name: "", rent: "", notes: "" };
+  openSheet({
+    title: isNew ? "Add a place" : "Edit place",
+    saveLabel: isNew ? "Add" : "Save",
+    body: `
+      <label class="field"><span>Area or building</span><input type="text" id="f-name" value="${esc(p.name)}" placeholder="e.g. 2BHK near the dance studio" autofocus></label>
+      <label class="field"><span>Rent per month</span><input type="number" id="f-rent" inputmode="numeric" value="${p.rent || ""}" placeholder="₹"></label>
+      <label class="field"><span>Notes</span><textarea id="f-notes" rows="3" placeholder="Commute, kitchen, light, owner…">${esc(p.notes)}</textarea></label>`,
+    onSave({ f }) {
+      const name = f("#f-name").value.trim();
+      if (!name) { toast("Add a name for the place"); return false; }
+      const data = { name, rent: +f("#f-rent").value || 0, notes: f("#f-notes").value.trim() };
+      if (isNew) state.house.places.push({ id: uid(), rating: 0, ...data });
+      else Object.assign(p, data);
+    },
+    onDelete: isNew ? null : () => removeWithUndo(state.house.places, p, "Place deleted"),
+  });
+}
+
+function nameSheet() {
+  openSheet({
+    title: "Your name",
+    body: `<label class="field"><span>What should the app call you?</span><input type="text" id="f-name" value="${esc(state.name)}" placeholder="Your name" autocomplete="given-name" autofocus></label>`,
+    onSave({ f }) { state.name = f("#f-name").value.trim(); },
+  });
+}
+
+function removeWithUndo(arr, item, msg) {
+  const i = arr.indexOf(item);
+  if (i < 0) return;
+  arr.splice(i, 1);
+  toast(msg, () => { arr.splice(i, 0, item); save(); render(true); });
+}
+
+/* ---------- welcome ---------- */
+
+function showWelcome() {
+  const el = document.getElementById("welcome");
+  el.innerHTML = `
+    <div class="welcome-inner">
+      <svg class="bulb" viewBox="0 0 48 48" aria-hidden="true"><path d="M18 36h12M20 41h8M24 6a13 13 0 0 0-7.6 23.6c1.3 1 2.1 2.6 2.1 4.4h11c0-1.8.8-3.4 2.1-4.4A13 13 0 0 0 24 6z"/><path d="M24 1v2M8 8l1.5 1.5M40 8l-1.5 1.5M3 22h2M43 22h2"/></svg>
+      <h1>Your plan<br>for every day</h1>
+      <ol class="how">
+        <li><b>Today</b><span>Tick small things off as you do them. Miss one? Swipe back and fill it in.</span></li>
+        <li><b>Week</b><span>Dance video, swim, an outing — tap + when it happens.</span></li>
+        <li><b>Plan</b><span>The one-time decisions, your savings and the new house.</span></li>
+        <li><b>Setup</b><span>Change anything. It's your plan.</span></li>
+      </ol>
+      <label class="field"><span>What should I call you?</span><input type="text" id="welcome-name" value="${esc(state.name)}" placeholder="Your name (optional)" autocomplete="given-name"></label>
+      <button class="btn wide" id="welcome-go">Let's start</button>
+      <p class="note center">Everything stays on this phone. No account.</p>
+    </div>`;
+  el.classList.add("open");
+  document.getElementById("welcome-go").onclick = () => {
+    state.name = document.getElementById("welcome-name").value.trim();
+    state.welcomed = true;
+    save();
+    el.classList.remove("open");
+    render(false);
+  };
 }
 
 /* ---------- render + routing ---------- */
@@ -487,9 +716,13 @@ const screenEl = document.getElementById("screen");
 function render(keepScroll) {
   const y = window.scrollY;
   screenEl.innerHTML = screens[ui.tab]();
-  document.querySelectorAll(".tabbar button").forEach((b) => b.classList.toggle("active", b.dataset.tab === ui.tab));
+  document.querySelectorAll(".tabbar button").forEach((b) => {
+    const on = b.dataset.tab === ui.tab;
+    b.classList.toggle("active", on);
+    if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
   if (keepScroll) { screenEl.style.animation = "none"; window.scrollTo(0, y); }
-  else { screenEl.style.animation = ""; window.scrollTo(0, 0); }
+  else { screenEl.style.animation = ""; void screenEl.offsetWidth; window.scrollTo(0, 0); }
 }
 
 function go(tab) {
@@ -514,8 +747,7 @@ const actions = {
     const day = (state.log[ui.date] = state.log[ui.date] || {});
     if (day[b.dataset.id]) delete day[b.dataset.id]; else day[b.dataset.id] = true;
     if (navigator.vibrate) navigator.vibrate(8);
-    const p = dayPct(ui.date);
-    if (p === 1 && day[b.dataset.id]) toast("Whole plan done today. Well done!");
+    if (dayPct(ui.date) === 1 && day[b.dataset.id]) toast("Whole plan done. Well done!");
   },
   day(b) { const next = addDays(ui.date, +b.dataset.n); if (next <= todayKey()) ui.date = next; return "top"; },
   "goto-today"() { ui.date = todayKey(); return "top"; },
@@ -525,51 +757,39 @@ const actions = {
   wk(b) {
     const log = (state.weekLog[b.dataset.wk] = state.weekLog[b.dataset.wk] || {});
     log[b.dataset.id] = Math.max(0, (log[b.dataset.id] || 0) + +b.dataset.n);
+    const w = find(state.weekly, b.dataset.id);
+    if (+b.dataset.n > 0 && log[b.dataset.id] === w.target) toast(`${w.title} — done for the week!`);
   },
   goal(b) {
     const g = find(state.goals, b.dataset.id);
     g.done = !g.done;
     g.doneAt = g.done ? todayKey() : undefined;
+    if (g.done) toast("Ticked off. One less thing to think about.");
   },
-  "del-goal"(b) { state.goals = state.goals.filter((x) => x.id !== b.dataset.id); },
-  "add-goal"() {
-    const t = document.getElementById("new-goal").value.trim();
-    if (!t) return "noop";
-    state.goals.push({ id: uid(), area: document.getElementById("new-goal-area").value, title: t, done: false });
-  },
+  "edit-goal"(b) { goalSheet(find(state.goals, b.dataset.id)); return "noop"; },
+  "add-goal"() { goalSheet(); return "noop"; },
   crit(b) { const c = find(state.house.criteria, b.dataset.id); c.done = !c.done; },
-  rate(b) { find(state.house.places, b.dataset.id).rating = +b.dataset.n; },
-  "del-place"(b) { state.house.places = state.house.places.filter((x) => x.id !== b.dataset.id); },
-  "add-place"() {
-    const name = document.getElementById("place-name").value.trim();
-    if (!name) return "noop";
-    state.house.places.push({
-      id: uid(), name,
-      rent: Number(document.getElementById("place-rent").value) || 0,
-      notes: document.getElementById("place-notes").value.trim(),
-      rating: 0,
-    });
-  },
-  "habit-day"(b) {
-    const h = find(state.habits, b.dataset.id);
-    const d = +b.dataset.d;
-    h.days = h.days.includes(d) ? h.days.filter((x) => x !== d) : [...h.days, d].sort();
-  },
-  "del-habit"(b) {
-    const h = find(state.habits, b.dataset.id);
-    if (!confirm(`Delete “${h.title}”? Its history goes too.`)) return "noop";
-    state.habits = state.habits.filter((x) => x.id !== h.id);
-  },
-  "add-habit"() { state.habits.push({ id: uid(), area: "work", title: "New habit", note: "", days: ALL_DAYS.slice() }); },
-  "del-weekly"(b) { state.weekly = state.weekly.filter((x) => x.id !== b.dataset.id); },
-  "add-weekly"() { state.weekly.push({ id: uid(), area: "dance", title: "New weekly goal", target: 1 }); },
+  rate(b) { const p = find(state.house.places, b.dataset.id); p.rating = p.rating === +b.dataset.n ? 0 : +b.dataset.n; },
+  "edit-place"(b) { placeSheet(find(state.house.places, b.dataset.id)); return "noop"; },
+  "add-place"() { placeSheet(); return "noop"; },
+  "edit-habit"(b) { habitSheet(find(state.habits, b.dataset.id)); return "noop"; },
+  "add-habit"() { habitSheet(); return "noop"; },
+  "edit-weekly"(b) { weeklySheet(find(state.weekly, b.dataset.id)); return "noop"; },
+  "add-weekly"() { weeklySheet(); return "noop"; },
+  "edit-name"() { nameSheet(); return "noop"; },
+  "hide-hint"() { state.installHintHidden = true; },
+  "show-welcome"() { showWelcome(); return "noop"; },
   ics() { downloadIcs(); return "noop"; },
   export() { exportBackup(); return "noop"; },
   import() { document.getElementById("import-file").click(); return "noop"; },
   reset() {
-    if (!confirm("Replace everything with the original plan? Ticks and notes will be lost.")) return "noop";
-    state = seed();
-    toast("Plan reset");
+    openSheet({
+      title: "Start over?",
+      saveLabel: "Start over",
+      body: `<p class="note" style="margin-top:0">This puts back the original plan. All ticks, savings and places will be cleared. Save a backup first if you might want them.</p>`,
+      onSave() { const name = state.name; state = seed(); state.name = name; state.welcomed = true; toast("Fresh start"); },
+    });
+    return "noop";
   },
 };
 
@@ -582,23 +802,10 @@ screenEl.addEventListener("click", (e) => {
   render(res !== "top");
 });
 
-// text / select / number edits — saved on change so typing never loses focus
+// inline number / date / time fields — saved on change so typing never loses focus
 screenEl.addEventListener("change", (e) => {
   const el = e.target;
   if (el.id === "import-file") return importBackup(el.files[0]);
-
-  if (el.dataset.edit) {
-    const list = el.dataset.edit === "habit" ? state.habits : state.weekly;
-    const item = find(list, el.dataset.id);
-    let v = el.value;
-    if (el.dataset.key === "target") v = Math.max(1, Math.min(14, Number(v) || 1));
-    if (el.dataset.key === "title" && !v.trim()) { el.value = item.title; return; }
-    item[el.dataset.key] = v;
-    save();
-    if (el.dataset.key === "area") render(true);
-    return;
-  }
-
   const bind = el.dataset.bind;
   if (!bind) return;
   const num = Math.max(0, Number(el.value) || 0);
@@ -611,11 +818,23 @@ screenEl.addEventListener("change", (e) => {
   render(true);
 });
 
-screenEl.addEventListener("keydown", (e) => {
-  if (e.key !== "Enter") return;
-  if (e.target.id === "new-goal") document.querySelector('[data-act="add-goal"]').click();
-  if (e.target.id === "place-name" || e.target.id === "place-rent") document.querySelector('[data-act="add-place"]').click();
-});
+// swipe left / right on Today to move between days
+let touch = null;
+screenEl.addEventListener("touchstart", (e) => {
+  if (ui.tab !== "today" || e.touches.length !== 1) return;
+  touch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+}, { passive: true });
+screenEl.addEventListener("touchend", (e) => {
+  if (!touch) return;
+  const dx = e.changedTouches[0].clientX - touch.x;
+  const dy = e.changedTouches[0].clientY - touch.y;
+  touch = null;
+  if (Math.abs(dx) < 70 || Math.abs(dy) > 50) return;
+  const next = addDays(ui.date, dx > 0 ? -1 : 1);
+  if (next > todayKey()) return;
+  ui.date = next;
+  render(false);
+}, { passive: true });
 
 /* ---------- calendar reminders (.ics) ---------- */
 
@@ -690,27 +909,35 @@ async function shareOrDownload(text, name, type) {
   setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-/* ---------- toast ---------- */
+/* ---------- toast (with optional Undo) ---------- */
 
 let toastTimer;
-function toast(msg) {
+function toast(msg, undo) {
   const t = document.getElementById("toast");
-  t.textContent = msg;
+  t.innerHTML = `<span>${esc(msg)}</span>${undo ? `<button type="button">Undo</button>` : ""}`;
+  if (undo) t.querySelector("button").onclick = () => { undo(); t.classList.remove("show"); };
   t.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("show"), 2200);
+  toastTimer = setTimeout(() => t.classList.remove("show"), undo ? 5000 : 2200);
 }
 
 /* ---------- start ---------- */
 
 // a new day while the app sat open in the background → jump to it
+let lastToday = todayKey();
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && ui.tab === "today" && ui.date < todayKey()) { ui.date = todayKey(); render(false); }
+  if (document.visibilityState !== "visible") return;
+  const now = todayKey();
+  if (now !== lastToday && ui.tab === "today" && ui.date === lastToday) { ui.date = now; render(false); }
+  lastToday = now;
 });
+
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sheetEl.classList.contains("open")) closeSheet(); });
 
 try { const t = localStorage.getItem("dailyplan.tab"); if (t && screens[t]) ui.tab = t; } catch (e) {}
 save();
 render(false);
+if (!state.welcomed) showWelcome();
 
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
   navigator.serviceWorker.register("sw.js").catch(() => {});
