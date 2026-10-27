@@ -1,29 +1,26 @@
 # Daily Plan
 
-A personal "plan for every day" app for iPhone, built from the notebook pages:
-food, workout, work, dance, money, outings and the new house.
+A calm daily system for Food, Workout, Work, Dance, Money, Outings and Home — one person, phone first.
 
-It is an installable web app (PWA): no App Store, no account, no server.
-Everything is stored on the phone (localStorage) and works offline.
+Live: https://nandy2312.github.io/daily-plan/ (add it to the iPhone home screen from Safari).
 
-## Screens
-- **Today** — tick off the day's habits (by area), streaks, this week's goals.
-- **Week** — 7-day progress, weekly goals (dance video, swim, outing…), habit grid. Tap a day to fill in a missed one.
-- **Money** — add each spend in two taps; budget per category (rent, food, cook akka, dance…) shows what is left, what is over, and how much a day is safe for the rest of the month; income vs savings vs budgeted; monthly savings.
-- **Plan** — one-time decisions (cook akka, savings auto-transfer…), new-house date / must-haves / places seen.
-- **Setup** — edit habits and their days, weekly goals, add Calendar reminders (.ics), backup / restore.
+## What's inside
+- **Today** — today's plan with big ticks, now/next, one gentle suggestion, a tile per area (auto-ticks when you finish something in that area), tomorrow at a glance.
+- **Calendar** — Day / Week / Month, colour per area, ready-made templates, tap an empty time to add, hold-and-drag to move (a repeating item moves for that day only, with Undo), swipe to change day/week, simple repeats (every day, weekdays, weekends, every <day>).
+- **Areas** — each area shows its calendar items for the next 7 days plus its own tools:
+  Food (meals, cooking myself / cook akka, energy note) · Workout (quick-start timer, log, streak) ·
+  Work (apps / learning / portfolio tasks, learning log) · Dance (weekly practice goal, content ideas) ·
+  Money (spending vs budget per category, what's left per day, savings goals, 6-month view) ·
+  Outings (this week's outing, recent ones) · Home (move countdown, checklist, places seen).
+- **Me** — account + sync status, send the calendar to the iPhone Calendar (alerts), backup / restore.
 
-## Run locally
+## Stack
+React 18 + Vite + TypeScript. Supabase (auth + one `user_state` row per user, row-level security) — optional; without keys the app runs on-device only. Offline via a small service worker. Deployed by GitHub Actions to Pages.
+
+## Develop
 ```
-python3 -m http.server 5178
+npm install
+npm run dev      # http://localhost:5178
+npm run build
 ```
-Open http://localhost:5178.
-
-## Put it on the iPhone
-It must be served over HTTPS (or opened from the Mac on the same Wi-Fi for a quick try).
-Open the URL in Safari → Share → **Add to Home Screen**.
-
-## Notes
-- Bump `VERSION` in `sw.js` after changing files so the phone picks up the update.
-- Home-screen web apps can't schedule local notifications; reminders go to the iPhone Calendar instead.
-- Icons are generated (ruled paper + ink tick); replace files in `icons/` to change them.
+Login/sync setup: see [SETUP.md](SETUP.md). The first version (plain JS) is kept in `v1-archive/`; its data is imported automatically on first open.

@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "daily-plan", "runtimeExecutable": "python3", "runtimeArgs": ["-m", "http.server", "5178"], "port": 5178 }
+    { "name": "daily-plan", "runtimeExecutable": "npx", "runtimeArgs": ["vite", "--port", "5178", "--strictPort"], "port": 5178 }
   ]
 }
