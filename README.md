@@ -15,12 +15,13 @@ Live: https://nandy2312.github.io/daily-plan/ (add it to the iPhone home screen 
 - **Me** — account + sync status, send the calendar to the iPhone Calendar (alerts), backup / restore.
 
 ## Stack
-React 18 + Vite + TypeScript. Supabase (auth + one `user_state` row per user, row-level security) — optional; without keys the app runs on-device only. Offline via a small service worker. Deployed by GitHub Actions to Pages.
+React 18 + Vite + TypeScript. Supabase (auth + one `user_state` row per user, row-level security) — optional; without keys the app runs on-device only. Offline via a small service worker. Deployed with `npm run deploy` (builds, then commits `dist/` to the `gh-pages` branch that Pages serves).
 
 ## Develop
 ```
 npm install
 npm run dev      # http://localhost:5178
 npm run build
+npm run deploy   # publish to GitHub Pages
 ```
 Login/sync setup: see [SETUP.md](SETUP.md). The first version (plain JS) is kept in `v1-archive/`; its data is imported automatically on first open.
